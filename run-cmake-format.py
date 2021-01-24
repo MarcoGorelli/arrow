@@ -22,57 +22,24 @@ import pathlib
 import subprocess
 import sys
 
-
-patterns = [
-    'cpp/CMakeLists.txt',
-    # Keep an explicit list of files to format as we don't want to reformat
-    # files we imported from other location.
-    'cpp/cmake_modules/BuildUtils.cmake',
-    'cpp/cmake_modules/DefineOptions.cmake',
-    'cpp/cmake_modules/FindArrow.cmake',
-    'cpp/cmake_modules/FindArrowCUDA.cmake',
-    'cpp/cmake_modules/FindArrowDataset.cmake',
-    'cpp/cmake_modules/FindArrowFlight.cmake',
-    'cpp/cmake_modules/FindArrowFlightTesting.cmake',
-    'cpp/cmake_modules/FindArrowPython.cmake',
-    'cpp/cmake_modules/FindArrowPythonFlight.cmake',
-    'cpp/cmake_modules/FindArrowTesting.cmake',
-    'cpp/cmake_modules/FindBrotli.cmake',
-    'cpp/cmake_modules/FindClangTools.cmake',
-    'cpp/cmake_modules/FindFlatbuffersAlt.cmake',
-    'cpp/cmake_modules/FindGLOG.cmake',
-    'cpp/cmake_modules/FindGandiva.cmake',
-    'cpp/cmake_modules/FindInferTools.cmake',
-    'cpp/cmake_modules/FindLLVMAlt.cmake',
-    'cpp/cmake_modules/FindLz4.cmake',
-    'cpp/cmake_modules/FindParquet.cmake',
-    'cpp/cmake_modules/FindPlasma.cmake',
-    'cpp/cmake_modules/FindPython3Alt.cmake',
-    'cpp/cmake_modules/FindRE2.cmake',
-    'cpp/cmake_modules/FindRapidJSONAlt.cmake',
-    'cpp/cmake_modules/FindSnappyAlt.cmake',
-    'cpp/cmake_modules/FindThrift.cmake',
-    'cpp/cmake_modules/FindZSTD.cmake',
-    'cpp/cmake_modules/Findc-aresAlt.cmake',
-    'cpp/cmake_modules/FindgRPCAlt.cmake',
-    'cpp/cmake_modules/FindgflagsAlt.cmake',
-    'cpp/cmake_modules/Findjemalloc.cmake',
-    'cpp/cmake_modules/SetupCxxFlags.cmake',
-    'cpp/cmake_modules/ThirdpartyToolchain.cmake',
-    'cpp/cmake_modules/san-config.cmake',
+# Keep an explicit list of files to format as we don't want to reformat
+# files we imported from other location.
+PATTERNS = [
+    'cpp/cmake_modules/*.cmake',
+    '*CMakeLists.txt',
+]
+EXCLUDE = [
+    'cpp/cmake_modules/FindNumPy.cmake',
+    'cpp/cmake_modules/FindPythonLibsNew.cmake',
     'cpp/cmake_modules/UseCython.cmake',
-    'cpp/src/**/CMakeLists.txt',
-    'cpp/tools/**/CMakeLists.txt',
-    'java/gandiva/CMakeLists.txt',
-    'python/CMakeLists.txt',
 ]
 
 here = pathlib.Path(__file__).parent
 
 
 def find_cmake_files():
-    for pat in patterns:
-        yield from here.glob(pat)
+    for pat in PATTERNS:
+        yield from here.rglob(pat)
 
 
 def run_cmake_format(paths):
@@ -118,7 +85,8 @@ def check_cmake_format(paths):
 
 
 if __name__ == "__main__":
-    paths = list(find_cmake_files())
+    paths = find_cmake_files()
+    paths = [i for i in paths if i not in EXCLUDE]
     if "--check" in sys.argv:
         check_cmake_format(paths)
     else:
