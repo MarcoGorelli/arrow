@@ -62,14 +62,14 @@
 
 # Use the Python interpreter to find the libs.
 if(PythonLibsNew_FIND_REQUIRED)
-  find_package(PythonInterp REQUIRED)
+    find_package(PythonInterp REQUIRED)
 else()
-  find_package(PythonInterp)
+    find_package(PythonInterp)
 endif()
 
 if(NOT PYTHONINTERP_FOUND)
-  set(PYTHONLIBS_FOUND FALSE)
-  return()
+    set(PYTHONLIBS_FOUND FALSE)
+    return()
 endif()
 
 # According to http://stackoverflow.com/questions/646518/python-how-to-detect-debug-interpreter
@@ -82,7 +82,7 @@ endif()
 # The config var LIBPL is for Linux, and helps on Debian Jessie where the
 # addition of multi-arch support shuffled things around.
 execute_process(COMMAND "${PYTHON_EXECUTABLE}" "-c"
-                        "from distutils import sysconfig as s;import sys;import struct;
+    "from distutils import sysconfig as s;import sys;import struct;
 print('.'.join(str(v) for v in sys.version_info));
 print(sys.prefix);
 print(s.get_python_inc(plat_specific=True));
@@ -94,16 +94,17 @@ print(s.get_config_var('LDVERSION') or s.get_config_var('VERSION'));
 print(s.get_config_var('LIBPL'));
 print(s.get_config_var('LIBS') or '');
 "
-                RESULT_VARIABLE _PYTHON_SUCCESS
-                OUTPUT_VARIABLE _PYTHON_VALUES
-                ERROR_VARIABLE _PYTHON_ERROR_VALUE)
+    RESULT_VARIABLE _PYTHON_SUCCESS
+    OUTPUT_VARIABLE _PYTHON_VALUES
+    ERROR_VARIABLE _PYTHON_ERROR_VALUE)
 
 if(NOT _PYTHON_SUCCESS MATCHES 0)
-  if(PythonLibsNew_FIND_REQUIRED)
-    message(FATAL_ERROR "Python config failure:\n${_PYTHON_ERROR_VALUE}")
-  endif()
-  set(PYTHONLIBS_FOUND FALSE)
-  return()
+    if(PythonLibsNew_FIND_REQUIRED)
+        message(FATAL_ERROR
+            "Python config failure:\n${_PYTHON_ERROR_VALUE}")
+    endif()
+    set(PYTHONLIBS_FOUND FALSE)
+    return()
 endif()
 
 # Convert the process output into a list
@@ -123,14 +124,15 @@ list(GET _PYTHON_VALUES 9 PYTHON_OTHER_LIBS)
 # Make sure the Python has the same pointer-size as the chosen compiler
 # Skip the check on OS X, it doesn't consistently have CMAKE_SIZEOF_VOID_P defined
 if((NOT APPLE) AND (NOT "${PYTHON_SIZEOF_VOID_P}" STREQUAL "${CMAKE_SIZEOF_VOID_P}"))
-  if(PythonLibsNew_FIND_REQUIRED)
-    math(EXPR _PYTHON_BITS "${PYTHON_SIZEOF_VOID_P} * 8")
-    math(EXPR _CMAKE_BITS "${CMAKE_SIZEOF_VOID_P} * 8")
-    message(FATAL_ERROR "Python config failure: Python is ${_PYTHON_BITS}-bit, "
-                        "chosen compiler is  ${_CMAKE_BITS}-bit")
-  endif()
-  set(PYTHONLIBS_FOUND FALSE)
-  return()
+    if(PythonLibsNew_FIND_REQUIRED)
+        math(EXPR _PYTHON_BITS "${PYTHON_SIZEOF_VOID_P} * 8")
+        math(EXPR _CMAKE_BITS "${CMAKE_SIZEOF_VOID_P} * 8")
+        message(FATAL_ERROR
+            "Python config failure: Python is ${_PYTHON_BITS}-bit, "
+            "chosen compiler is  ${_CMAKE_BITS}-bit")
+    endif()
+    set(PYTHONLIBS_FOUND FALSE)
+    return()
 endif()
 
 # The built-in FindPython didn't always give the version numbers
@@ -147,111 +149,119 @@ string(REGEX REPLACE "\\\\" "/" PYTHON_SITE_PACKAGES ${PYTHON_SITE_PACKAGES})
 if(CMAKE_HOST_WIN32)
   # Appease CMP0054
   if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    set(PYTHON_LIBRARY "${PYTHON_PREFIX}/libs/Python${PYTHON_LIBRARY_SUFFIX}.lib")
+    set(PYTHON_LIBRARY
+      "${PYTHON_PREFIX}/libs/Python${PYTHON_LIBRARY_SUFFIX}.lib")
   else()
     find_library(PYTHON_LIBRARY
-                 NAMES "python${PYTHON_LIBRARY_SUFFIX}"
-                 PATHS "${PYTHON_PREFIX}"
-                 NO_DEFAULT_PATH
-                 PATH_SUFFIXES "lib" "libs")
+        NAMES "python${PYTHON_LIBRARY_SUFFIX}"
+        PATHS "${PYTHON_PREFIX}" NO_DEFAULT_PATH
+        PATH_SUFFIXES "lib" "libs")
   endif()
 elseif(APPLE)
 
   set(PYTHON_LIBRARY "${PYTHON_PREFIX}/lib/libpython${PYTHON_LIBRARY_SUFFIX}.dylib")
 
-  if(NOT EXISTS ${PYTHON_LIBRARY})
+  if (NOT EXISTS ${PYTHON_LIBRARY})
     # In some cases libpythonX.X.dylib is not part of the PYTHON_PREFIX and we
     # need to call `python-config --prefix` to determine the correct location.
-    find_program(PYTHON_CONFIG python-config NO_CMAKE_SYSTEM_PATH)
-    if(PYTHON_CONFIG)
-      execute_process(COMMAND "${PYTHON_CONFIG}" "--prefix"
-                      OUTPUT_VARIABLE PYTHON_CONFIG_PREFIX
-                      OUTPUT_STRIP_TRAILING_WHITESPACE)
-      set(PYTHON_LIBRARY
-          "${PYTHON_CONFIG_PREFIX}/lib/libpython${PYTHON_LIBRARY_SUFFIX}.dylib")
+    find_program(PYTHON_CONFIG python-config
+        NO_CMAKE_SYSTEM_PATH)
+    if (PYTHON_CONFIG)
+      execute_process(
+          COMMAND "${PYTHON_CONFIG}" "--prefix"
+          OUTPUT_VARIABLE PYTHON_CONFIG_PREFIX
+          OUTPUT_STRIP_TRAILING_WHITESPACE)
+      set(PYTHON_LIBRARY "${PYTHON_CONFIG_PREFIX}/lib/libpython${PYTHON_LIBRARY_SUFFIX}.dylib")
     endif()
   endif()
 else()
-  if(${PYTHON_SIZEOF_VOID_P} MATCHES 8)
-    set(_PYTHON_LIBS_SEARCH "${PYTHON_PREFIX}/lib64" "${PYTHON_PREFIX}/lib"
-                            "${PYTHON_LIBRARY_PATH}")
-  else()
-    set(_PYTHON_LIBS_SEARCH "${PYTHON_PREFIX}/lib" "${PYTHON_LIBRARY_PATH}")
-  endif()
-  message(STATUS "Searching for Python libs in ${_PYTHON_LIBS_SEARCH}")
-  message(STATUS "Looking for python${PYTHON_LIBRARY_SUFFIX}")
-  # Probably this needs to be more involved. It would be nice if the config
-  # information the python interpreter itself gave us were more complete.
-  find_library(PYTHON_LIBRARY
-               NAMES "python${PYTHON_LIBRARY_SUFFIX}"
-               PATHS ${_PYTHON_LIBS_SEARCH}
-               NO_SYSTEM_ENVIRONMENT_PATH NO_CMAKE_SYSTEM_PATH)
-  message(STATUS "Found Python lib ${PYTHON_LIBRARY}")
+    if(${PYTHON_SIZEOF_VOID_P} MATCHES 8)
+        set(_PYTHON_LIBS_SEARCH "${PYTHON_PREFIX}/lib64" "${PYTHON_PREFIX}/lib" "${PYTHON_LIBRARY_PATH}")
+    else()
+        set(_PYTHON_LIBS_SEARCH "${PYTHON_PREFIX}/lib" "${PYTHON_LIBRARY_PATH}")
+    endif()
+    message(STATUS "Searching for Python libs in ${_PYTHON_LIBS_SEARCH}")
+    message(STATUS "Looking for python${PYTHON_LIBRARY_SUFFIX}")
+    # Probably this needs to be more involved. It would be nice if the config
+    # information the python interpreter itself gave us were more complete.
+    find_library(PYTHON_LIBRARY
+        NAMES "python${PYTHON_LIBRARY_SUFFIX}"
+        PATHS ${_PYTHON_LIBS_SEARCH}
+        NO_SYSTEM_ENVIRONMENT_PATH
+        NO_CMAKE_SYSTEM_PATH)
+    message(STATUS "Found Python lib ${PYTHON_LIBRARY}")
 endif()
 
 # For backward compatibility, set PYTHON_INCLUDE_PATH, but make it internal.
-set(PYTHON_INCLUDE_PATH
-    "${PYTHON_INCLUDE_DIR}"
-    CACHE INTERNAL "Path to where Python.h is found (deprecated)")
+SET(PYTHON_INCLUDE_PATH "${PYTHON_INCLUDE_DIR}" CACHE INTERNAL
+          "Path to where Python.h is found (deprecated)")
 
-mark_as_advanced(PYTHON_LIBRARY PYTHON_INCLUDE_DIR)
+MARK_AS_ADVANCED(
+  PYTHON_LIBRARY
+  PYTHON_INCLUDE_DIR
+)
 
 # We use PYTHON_INCLUDE_DIR, PYTHON_LIBRARY and PYTHON_DEBUG_LIBRARY for the
 # cache entries because they are meant to specify the location of a single
 # library. We now set the variables listed by the documentation for this
 # module.
-set(PYTHON_INCLUDE_DIRS "${PYTHON_INCLUDE_DIR}")
-set(PYTHON_LIBRARIES "${PYTHON_LIBRARY}")
-set(PYTHON_DEBUG_LIBRARIES "${PYTHON_DEBUG_LIBRARY}")
+SET(PYTHON_INCLUDE_DIRS "${PYTHON_INCLUDE_DIR}")
+SET(PYTHON_LIBRARIES "${PYTHON_LIBRARY}")
+SET(PYTHON_DEBUG_LIBRARIES "${PYTHON_DEBUG_LIBRARY}")
+
 
 # Don't know how to get to this directory, just doing something simple :P
 #INCLUDE(${CMAKE_CURRENT_LIST_DIR}/FindPackageHandleStandardArgs.cmake)
 #FIND_PACKAGE_HANDLE_STANDARD_ARGS(PythonLibs DEFAULT_MSG PYTHON_LIBRARIES PYTHON_INCLUDE_DIRS)
-find_package_message(PYTHON "Found PythonLibs: ${PYTHON_LIBRARY}"
-                     "${PYTHON_EXECUTABLE}${PYTHON_VERSION}")
+find_package_message(PYTHON
+    "Found PythonLibs: ${PYTHON_LIBRARY}"
+    "${PYTHON_EXECUTABLE}${PYTHON_VERSION}")
+
 
 # PYTHON_ADD_MODULE(<name> src1 src2 ... srcN) is used to build modules for python.
-function(PYTHON_ADD_MODULE _NAME)
-  get_property(_TARGET_SUPPORTS_SHARED_LIBS GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS)
-  option(PYTHON_ENABLE_MODULE_${_NAME} "Add module ${_NAME}" TRUE)
-  option(PYTHON_MODULE_${_NAME}_BUILD_SHARED "Add module ${_NAME} shared"
-         ${_TARGET_SUPPORTS_SHARED_LIBS})
+FUNCTION(PYTHON_ADD_MODULE _NAME )
+  GET_PROPERTY(_TARGET_SUPPORTS_SHARED_LIBS
+    GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS)
+  OPTION(PYTHON_ENABLE_MODULE_${_NAME} "Add module ${_NAME}" TRUE)
+  OPTION(PYTHON_MODULE_${_NAME}_BUILD_SHARED
+    "Add module ${_NAME} shared" ${_TARGET_SUPPORTS_SHARED_LIBS})
 
   # Mark these options as advanced
-  mark_as_advanced(PYTHON_ENABLE_MODULE_${_NAME} PYTHON_MODULE_${_NAME}_BUILD_SHARED)
+  MARK_AS_ADVANCED(PYTHON_ENABLE_MODULE_${_NAME}
+    PYTHON_MODULE_${_NAME}_BUILD_SHARED)
 
-  if(PYTHON_ENABLE_MODULE_${_NAME})
-    if(PYTHON_MODULE_${_NAME}_BUILD_SHARED)
-      set(PY_MODULE_TYPE MODULE)
-    else(PYTHON_MODULE_${_NAME}_BUILD_SHARED)
-      set(PY_MODULE_TYPE STATIC)
-      set_property(GLOBAL APPEND PROPERTY PY_STATIC_MODULES_LIST ${_NAME})
-    endif(PYTHON_MODULE_${_NAME}_BUILD_SHARED)
+  IF(PYTHON_ENABLE_MODULE_${_NAME})
+    IF(PYTHON_MODULE_${_NAME}_BUILD_SHARED)
+      SET(PY_MODULE_TYPE MODULE)
+    ELSE(PYTHON_MODULE_${_NAME}_BUILD_SHARED)
+      SET(PY_MODULE_TYPE STATIC)
+      SET_PROPERTY(GLOBAL  APPEND  PROPERTY  PY_STATIC_MODULES_LIST ${_NAME})
+    ENDIF(PYTHON_MODULE_${_NAME}_BUILD_SHARED)
 
-    set_property(GLOBAL APPEND PROPERTY PY_MODULES_LIST ${_NAME})
-    add_library(${_NAME} ${PY_MODULE_TYPE} ${ARGN})
-    if(APPLE)
+    SET_PROPERTY(GLOBAL  APPEND  PROPERTY  PY_MODULES_LIST ${_NAME})
+    ADD_LIBRARY(${_NAME} ${PY_MODULE_TYPE} ${ARGN})
+    IF(APPLE)
       # On OS X, linking against the Python libraries causes
       # segfaults, so do this dynamic lookup instead.
-      set_target_properties(${_NAME} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-    elseif(MSVC)
+      SET_TARGET_PROPERTIES(${_NAME} PROPERTIES LINK_FLAGS
+                          "-undefined dynamic_lookup")
+    ELSEIF(MSVC)
       target_link_libraries(${_NAME} ${PYTHON_LIBRARIES})
-    else()
+    ELSE()
       # In general, we should not link against libpython as we do not embed the
       # Python interpreter. The python binary itself can then define where the
       # symbols should loaded from. For being manylinux1 compliant, one is not
       # allowed to link to libpython. Partly because not all systems ship it,
       # also because the interpreter ABI/API was not stable between patch
       # releases for Python < 3.5.
-      set_target_properties(${_NAME}
-                            PROPERTIES LINK_FLAGS "-Wl,-undefined,dynamic_lookup")
-    endif()
-    if(PYTHON_MODULE_${_NAME}_BUILD_SHARED)
-      set_target_properties(${_NAME} PROPERTIES PREFIX "${PYTHON_MODULE_PREFIX}")
-      set_target_properties(${_NAME} PROPERTIES SUFFIX "${PYTHON_MODULE_EXTENSION}")
-    else()
+      SET_TARGET_PROPERTIES(${_NAME} PROPERTIES LINK_FLAGS
+        "-Wl,-undefined,dynamic_lookup")
+    ENDIF()
+    IF(PYTHON_MODULE_${_NAME}_BUILD_SHARED)
+      SET_TARGET_PROPERTIES(${_NAME} PROPERTIES PREFIX "${PYTHON_MODULE_PREFIX}")
+      SET_TARGET_PROPERTIES(${_NAME} PROPERTIES SUFFIX "${PYTHON_MODULE_EXTENSION}")
+    ELSE()
+    ENDIF()
 
-    endif()
-
-  endif(PYTHON_ENABLE_MODULE_${_NAME})
-endfunction(PYTHON_ADD_MODULE)
+  ENDIF(PYTHON_ENABLE_MODULE_${_NAME})
+ENDFUNCTION(PYTHON_ADD_MODULE)

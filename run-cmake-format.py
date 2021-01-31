@@ -86,7 +86,7 @@ def check_cmake_format(paths):
 
 if __name__ == "__main__":
     paths = find_cmake_files()
-    paths = [i for i in paths if i not in EXCLUDE]
+    paths = [i for i in paths if pathlib.Path(i).as_posix() not in EXCLUDE]
     if "--check" in sys.argv:
         check_cmake_format(paths)
     else:
