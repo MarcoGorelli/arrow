@@ -21,6 +21,7 @@ import hashlib
 import pathlib
 import subprocess
 import sys
+import argparse
 
 # Keep an explicit list of files to format as we don't want to reformat
 # files we imported from other location.
@@ -85,7 +86,15 @@ def check_cmake_format(paths):
 
 
 if __name__ == "__main__":
-    paths = find_cmake_files()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('paths', nargs='*')
+    parser.add_argument('--check', action='store_true')
+    args = parser.parse_args()
+
+    if not args.paths:
+        paths = find_cmake_files()
+    else:
+        paths = args.paths
     paths = [i for i in paths if pathlib.Path(i).as_posix() not in EXCLUDE]
     if "--check" in sys.argv:
         check_cmake_format(paths)
