@@ -42,7 +42,6 @@ repos:
         language: python
         entry: python run-cmake-format.py
         types: [cmake]
-        pass_filenames: false
         additional_dependencies:
           - cmake_format==0.5.2
       - id: hadolint

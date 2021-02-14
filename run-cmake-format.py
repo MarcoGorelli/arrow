@@ -17,16 +17,17 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import argparse
 import hashlib
+import fnmatch
 import pathlib
 import subprocess
 import sys
-import argparse
 
 # Keep an explicit list of files to format as we don't want to reformat
 # files we imported from other location.
 PATTERNS = [
-    'cpp/cmake_modules/*.cmake',
+    'cpp/cmake_modules/*/.cmake',
     '*CMakeLists.txt',
 ]
 EXCLUDE = [
@@ -40,7 +41,7 @@ here = pathlib.Path(__file__).parent
 
 def find_cmake_files():
     for pat in PATTERNS:
-        yield from here.rglob(pat)
+        yield from here.glob(pat)
 
 
 def run_cmake_format(paths):
@@ -87,16 +88,20 @@ def check_cmake_format(paths):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('paths', nargs='*')
     parser.add_argument('--check', action='store_true')
+    parser.add_argument('paths', nargs='*', type=pathlib.Path)
     args = parser.parse_args()
 
     if not args.paths:
         paths = find_cmake_files()
     else:
         paths = args.paths
-    paths = [i for i in paths if pathlib.Path(i).as_posix() not in EXCLUDE]
-    if "--check" in sys.argv:
+    paths = [
+        i for i in paths
+        if any(fnmatch.fnmatch(i.as_posix(), pattern) for pattern in PATTERNS)
+        and i.as_posix() not in EXCLUDE
+    ]
+    if args.check:
         check_cmake_format(paths)
     else:
         run_cmake_format(paths)
