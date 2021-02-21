@@ -44,16 +44,14 @@
 // NOTE: failing must be inline in the macros below, to get correct file / line number
 // reporting on test failures.
 
-#define ASSERT_RAISES(ENUM, expr)                                                     \
-  do {                                                                                \
-    auto _res = (expr);                                                               \
-    ::arrow::Status _st = ::arrow::internal::GenericToStatus(_res);                   \
-    if (!_st.Is##ENUM()) {                                                            \
-      FAIL() << "Expected '" ARROW_STRINGIFY(expr) "' to fail with " ARROW_STRINGIFY( \
-                    ENUM) ", but got "                                                \
-             << _st.ToString();                                                       \
-    }                                                                                 \
-  } while (false)
+// NOTE: using a for loop for this macro allows extra failure messages to be
+// appended with operator<<
+#define ASSERT_RAISES(ENUM, expr)                                                 \
+  for (::arrow::Status _st = ::arrow::internal::GenericToStatus((expr));          \
+       !_st.Is##ENUM();)                                                          \
+  FAIL() << "Expected '" ARROW_STRINGIFY(expr) "' to fail with " ARROW_STRINGIFY( \
+                ENUM) ", but got "                                                \
+         << _st.ToString()
 
 #define ASSERT_RAISES_WITH_MESSAGE(ENUM, message, expr)                               \
   do {                                                                                \
@@ -135,14 +133,54 @@
     ASSERT_EQ(expected, _actual);               \
   } while (0)
 
+// This macro should be called by futures that are expected to
+// complete pretty quickly.  2 seconds is the default max wait
+// here.  Anything longer than that and it's a questionable
+// unit test anyways.
+#define ASSERT_FINISHES_IMPL(fut)                            \
+  do {                                                       \
+    ASSERT_TRUE(fut.Wait(10));                               \
+    if (!fut.is_finished()) {                                \
+      FAIL() << "Future did not finish in a timely fashion"; \
+    }                                                        \
+  } while (false)
+
+#define ASSERT_FINISHES_OK(expr)                                              \
+  do {                                                                        \
+    auto&& _fut = (expr);                                                     \
+    ASSERT_TRUE(_fut.Wait(10));                                               \
+    if (!_fut.is_finished()) {                                                \
+      FAIL() << "Future did not finish in a timely fashion";                  \
+    }                                                                         \
+    auto _st = _fut.status();                                                 \
+    if (!_st.ok()) {                                                          \
+      FAIL() << "'" ARROW_STRINGIFY(expr) "' failed with " << _st.ToString(); \
+    }                                                                         \
+  } while (false)
+
+#define ASSERT_FINISHES_ERR(ENUM, expr) \
+  do {                                  \
+    auto&& fut = (expr);                \
+    ASSERT_FINISHES_IMPL(fut);          \
+    ASSERT_RAISES(ENUM, fut.status());  \
+  } while (false)
+
+#define ASSERT_FINISHES_OK_AND_ASSIGN_IMPL(lhs, rexpr, future_name) \
+  auto future_name = (rexpr);                                       \
+  ASSERT_FINISHES_IMPL(future_name);                                \
+  ASSERT_OK_AND_ASSIGN(lhs, future_name.result());
+
+#define ASSERT_FINISHES_OK_AND_ASSIGN(lhs, rexpr) \
+  ASSERT_FINISHES_OK_AND_ASSIGN_IMPL(lhs, rexpr,  \
+                                     ARROW_ASSIGN_OR_RAISE_NAME(_fut, __COUNTER__))
+
 namespace arrow {
+// ----------------------------------------------------------------------
+// Useful testing::Types declarations
 
 inline void PrintTo(StatusCode code, std::ostream* os) {
   *os << Status::CodeAsString(code);
 }
-
-// ----------------------------------------------------------------------
-// Useful testing::Types declarations
 
 using NumericArrowTypes =
     ::testing::Types<UInt8Type, UInt16Type, UInt32Type, UInt64Type, Int8Type, Int16Type,

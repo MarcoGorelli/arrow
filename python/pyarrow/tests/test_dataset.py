@@ -475,22 +475,33 @@ def test_parquet_read_options():
                                   dictionary_columns=['a', 'b'])
     opts3 = ds.ParquetReadOptions(buffer_size=2**13, use_buffered_stream=True,
                                   dictionary_columns={'a', 'b'})
+    opts4 = ds.ParquetReadOptions(buffer_size=2**13, pre_buffer=True,
+                                  dictionary_columns={'a', 'b'})
 
     assert opts1.use_buffered_stream is False
     assert opts1.buffer_size == 2**13
+    assert opts1.pre_buffer is False
     assert opts1.dictionary_columns == set()
 
     assert opts2.use_buffered_stream is False
     assert opts2.buffer_size == 2**12
+    assert opts2.pre_buffer is False
     assert opts2.dictionary_columns == {'a', 'b'}
 
     assert opts3.use_buffered_stream is True
     assert opts3.buffer_size == 2**13
+    assert opts3.pre_buffer is False
     assert opts3.dictionary_columns == {'a', 'b'}
+
+    assert opts4.use_buffered_stream is False
+    assert opts4.buffer_size == 2**13
+    assert opts4.pre_buffer is True
+    assert opts4.dictionary_columns == {'a', 'b'}
 
     assert opts1 == opts1
     assert opts1 != opts2
     assert opts2 != opts3
+    assert opts3 != opts4
 
 
 def test_file_format_pickling():
@@ -521,9 +532,11 @@ def test_file_format_pickling():
         'subdir/2/yyy/file1.parquet',
     ]
 ])
-def test_filesystem_factory(mockfs, paths_or_selector):
+@pytest.mark.parametrize('pre_buffer', [False, True])
+def test_filesystem_factory(mockfs, paths_or_selector, pre_buffer):
     format = ds.ParquetFileFormat(
-        read_options=ds.ParquetReadOptions(dictionary_columns={"str"})
+        read_options=ds.ParquetReadOptions(dictionary_columns={"str"},
+                                           pre_buffer=pre_buffer)
     )
 
     options = ds.FileSystemFactoryOptions('subdir')
@@ -1800,6 +1813,34 @@ def test_open_dataset_from_fsspec(tempdir):
     localfs = fsspec.filesystem("file")
     dataset = ds.dataset(path, filesystem=localfs)
     assert dataset.schema.equals(table.schema)
+
+
+@pytest.mark.pandas
+def test_filter_timestamp(tempdir):
+    # ARROW-11379
+    path = tempdir / "test_partition_timestamps"
+
+    table = pa.table({
+        "dates": ['2012-01-01', '2012-01-02'] * 5,
+        "id": range(10)})
+
+    # write dataset partitioned on dates (as strings)
+    part = ds.partitioning(table.select(['dates']).schema, flavor="hive")
+    ds.write_dataset(table, path, partitioning=part, format="feather")
+
+    # read dataset partitioned on dates (as timestamps)
+    part = ds.partitioning(pa.schema([("dates", pa.timestamp("s"))]),
+                           flavor="hive")
+    dataset = ds.dataset(path, format="feather", partitioning=part)
+
+    condition = ds.field("dates") > pd.Timestamp("2012-01-01")
+    table = dataset.to_table(filter=condition)
+    assert table.column('id').to_pylist() == [1, 3, 5, 7, 9]
+
+    import datetime
+    condition = ds.field("dates") > datetime.datetime(2012, 1, 1)
+    table = dataset.to_table(filter=condition)
+    assert table.column('id').to_pylist() == [1, 3, 5, 7, 9]
 
 
 @pytest.mark.parquet

@@ -516,20 +516,6 @@ Status CastImpl(const DateScalar<D>& from, TimestampScalar* to) {
       .Value(&to->value);
 }
 
-// timestamp to string
-Status CastImpl(const TimestampScalar& from, StringScalar* to) {
-  to->value = FormatToBuffer(internal::StringFormatter<Int64Type>{}, from);
-  return Status::OK();
-}
-
-// date to string
-template <typename D>
-Status CastImpl(const DateScalar<D>& from, StringScalar* to) {
-  TimestampScalar ts({}, timestamp(TimeUnit::MILLI));
-  RETURN_NOT_OK(CastImpl(from, &ts));
-  return CastImpl(ts, to);
-}
-
 // string to any
 template <typename ScalarType>
 Status CastImpl(const StringScalar& from, ScalarType* to) {
@@ -553,6 +539,18 @@ template <typename ScalarType, typename T = typename ScalarType::TypeClass,
           typename Value = typename Formatter::value_type>
 Status CastImpl(const ScalarType& from, StringScalar* to) {
   to->value = FormatToBuffer(Formatter{from.type}, from);
+  return Status::OK();
+}
+
+Status CastImpl(const Decimal128Scalar& from, StringScalar* to) {
+  auto from_type = checked_cast<const Decimal128Type*>(from.type.get());
+  to->value = Buffer::FromString(from.value.ToString(from_type->scale()));
+  return Status::OK();
+}
+
+Status CastImpl(const Decimal256Scalar& from, StringScalar* to) {
+  auto from_type = checked_cast<const Decimal256Type*>(from.type.get());
+  to->value = Buffer::FromString(from.value.ToString(from_type->scale()));
   return Status::OK();
 }
 
