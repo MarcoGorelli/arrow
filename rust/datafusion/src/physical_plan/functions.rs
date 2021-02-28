@@ -45,9 +45,9 @@ use crate::{
 };
 use arrow::{
     array::ArrayRef,
-    compute::kernels::length::length,
+    compute::kernels::length::{bit_length, length},
     datatypes::TimeUnit,
-    datatypes::{DataType, Field, Schema},
+    datatypes::{DataType, Field, Int32Type, Int64Type, Schema},
     record_batch::RecordBatch,
 };
 use fmt::{Debug, Formatter};
@@ -71,6 +71,8 @@ pub enum Signature {
     Exact(Vec<DataType>),
     /// fixed number of arguments of arbitrary types
     Any(usize),
+    /// One of a list of signatures
+    OneOf(Vec<Signature>),
 }
 
 /// Scalar function
@@ -84,72 +86,87 @@ pub type ReturnTypeFunction =
 /// Enum of all built-in scalar functions
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuiltinScalarFunction {
-    /// sqrt
-    Sqrt,
-    /// sin
-    Sin,
-    /// cos
-    Cos,
-    /// tan
-    Tan,
-    /// asin
-    Asin,
-    /// acos
-    Acos,
-    /// atan
-    Atan,
-    /// exp
-    Exp,
-    /// log, also known as ln
-    Log,
-    /// log2
-    Log2,
-    /// log10
-    Log10,
-    /// floor
-    Floor,
-    /// ceil
-    Ceil,
-    /// round
-    Round,
-    /// trunc
-    Trunc,
+    // math functions
     /// abs
     Abs,
+    /// acos
+    Acos,
+    /// asin
+    Asin,
+    /// atan
+    Atan,
+    /// ceil
+    Ceil,
+    /// cos
+    Cos,
+    /// exp
+    Exp,
+    /// floor
+    Floor,
+    /// log, also known as ln
+    Log,
+    /// log10
+    Log10,
+    /// log2
+    Log2,
+    /// round
+    Round,
     /// signum
     Signum,
-    /// length
-    Length,
-    /// concat
-    Concat,
-    /// lower
-    Lower,
-    /// upper
-    Upper,
-    /// trim
-    Trim,
-    /// trim left
-    Ltrim,
-    /// trim right
-    Rtrim,
-    /// to_timestamp
-    ToTimestamp,
+    /// sin
+    Sin,
+    /// sqrt
+    Sqrt,
+    /// tan
+    Tan,
+    /// trunc
+    Trunc,
+
+    // string functions
     /// construct an array from columns
     Array,
-    /// SQL NULLIF()
-    NullIf,
+    /// bit_length
+    BitLength,
+    /// btrim
+    Btrim,
+    /// character_length
+    CharacterLength,
+    /// concat
+    Concat,
+    /// concat_ws
+    ConcatWithSeparator,
+    /// Date part
+    DatePart,
     /// Date truncate
     DateTrunc,
+    /// lower
+    Lower,
+    /// trim left
+    Ltrim,
     /// MD5
     MD5,
+    /// SQL NULLIF()
+    NullIf,
+    /// octet_length
+    OctetLength,
+    /// trim right
+    Rtrim,
     /// SHA224
     SHA224,
-    /// SHA256,
+    /// SHA256
     SHA256,
     /// SHA384
     SHA384,
-    /// SHA512,
+    /// SHA512
     SHA512,
+    /// substr
+    Substr,
+    /// to_timestamp
+    ToTimestamp,
+    /// trim
+    Trim,
+    /// upper
+    Upper,
 }
 
 impl fmt::Display for BuiltinScalarFunction {
@@ -163,41 +180,51 @@ impl FromStr for BuiltinScalarFunction {
     type Err = DataFusionError;
     fn from_str(name: &str) -> Result<BuiltinScalarFunction> {
         Ok(match name {
-            "sqrt" => BuiltinScalarFunction::Sqrt,
-            "sin" => BuiltinScalarFunction::Sin,
-            "cos" => BuiltinScalarFunction::Cos,
-            "tan" => BuiltinScalarFunction::Tan,
-            "asin" => BuiltinScalarFunction::Asin,
-            "acos" => BuiltinScalarFunction::Acos,
-            "atan" => BuiltinScalarFunction::Atan,
-            "exp" => BuiltinScalarFunction::Exp,
-            "log" => BuiltinScalarFunction::Log,
-            "log2" => BuiltinScalarFunction::Log2,
-            "log10" => BuiltinScalarFunction::Log10,
-            "floor" => BuiltinScalarFunction::Floor,
-            "ceil" => BuiltinScalarFunction::Ceil,
-            "round" => BuiltinScalarFunction::Round,
-            "truc" => BuiltinScalarFunction::Trunc,
+            // math functions
             "abs" => BuiltinScalarFunction::Abs,
+            "acos" => BuiltinScalarFunction::Acos,
+            "asin" => BuiltinScalarFunction::Asin,
+            "atan" => BuiltinScalarFunction::Atan,
+            "ceil" => BuiltinScalarFunction::Ceil,
+            "cos" => BuiltinScalarFunction::Cos,
+            "exp" => BuiltinScalarFunction::Exp,
+            "floor" => BuiltinScalarFunction::Floor,
+            "log" => BuiltinScalarFunction::Log,
+            "log10" => BuiltinScalarFunction::Log10,
+            "log2" => BuiltinScalarFunction::Log2,
+            "round" => BuiltinScalarFunction::Round,
             "signum" => BuiltinScalarFunction::Signum,
-            "length" => BuiltinScalarFunction::Length,
-            "char_length" => BuiltinScalarFunction::Length,
-            "character_length" => BuiltinScalarFunction::Length,
-            "concat" => BuiltinScalarFunction::Concat,
-            "lower" => BuiltinScalarFunction::Lower,
-            "trim" => BuiltinScalarFunction::Trim,
-            "ltrim" => BuiltinScalarFunction::Ltrim,
-            "rtrim" => BuiltinScalarFunction::Rtrim,
-            "upper" => BuiltinScalarFunction::Upper,
-            "to_timestamp" => BuiltinScalarFunction::ToTimestamp,
-            "date_trunc" => BuiltinScalarFunction::DateTrunc,
+            "sin" => BuiltinScalarFunction::Sin,
+            "sqrt" => BuiltinScalarFunction::Sqrt,
+            "tan" => BuiltinScalarFunction::Tan,
+            "trunc" => BuiltinScalarFunction::Trunc,
+
+            // string functions
             "array" => BuiltinScalarFunction::Array,
-            "nullif" => BuiltinScalarFunction::NullIf,
+            "bit_length" => BuiltinScalarFunction::BitLength,
+            "btrim" => BuiltinScalarFunction::Btrim,
+            "char_length" => BuiltinScalarFunction::CharacterLength,
+            "character_length" => BuiltinScalarFunction::CharacterLength,
+            "concat" => BuiltinScalarFunction::Concat,
+            "concat_ws" => BuiltinScalarFunction::ConcatWithSeparator,
+            "date_part" => BuiltinScalarFunction::DatePart,
+            "date_trunc" => BuiltinScalarFunction::DateTrunc,
+            "length" => BuiltinScalarFunction::CharacterLength,
+            "lower" => BuiltinScalarFunction::Lower,
+            "ltrim" => BuiltinScalarFunction::Ltrim,
             "md5" => BuiltinScalarFunction::MD5,
+            "nullif" => BuiltinScalarFunction::NullIf,
+            "octet_length" => BuiltinScalarFunction::OctetLength,
+            "rtrim" => BuiltinScalarFunction::Rtrim,
             "sha224" => BuiltinScalarFunction::SHA224,
             "sha256" => BuiltinScalarFunction::SHA256,
             "sha384" => BuiltinScalarFunction::SHA384,
             "sha512" => BuiltinScalarFunction::SHA512,
+            "substr" => BuiltinScalarFunction::Substr,
+            "to_timestamp" => BuiltinScalarFunction::ToTimestamp,
+            "trim" => BuiltinScalarFunction::Trim,
+            "upper" => BuiltinScalarFunction::Upper,
+
             _ => {
                 return Err(DataFusionError::Plan(format!(
                     "There is no built-in function named {}",
@@ -231,17 +258,46 @@ pub fn return_type(
     // the return type of the built in function.
     // Some built-in functions' return type depends on the incoming type.
     match fun {
-        BuiltinScalarFunction::Length => Ok(match arg_types[0] {
+        BuiltinScalarFunction::Array => Ok(DataType::FixedSizeList(
+            Box::new(Field::new("item", arg_types[0].clone(), true)),
+            arg_types.len() as i32,
+        )),
+        BuiltinScalarFunction::BitLength => Ok(match arg_types[0] {
             DataType::LargeUtf8 => DataType::Int64,
             DataType::Utf8 => DataType::Int32,
             _ => {
                 // this error is internal as `data_types` should have captured this.
                 return Err(DataFusionError::Internal(
-                    "The length function can only accept strings.".to_string(),
+                    "The bit_length function can only accept strings.".to_string(),
+                ));
+            }
+        }),
+        BuiltinScalarFunction::Btrim => Ok(match arg_types[0] {
+            DataType::LargeUtf8 => DataType::LargeUtf8,
+            DataType::Utf8 => DataType::Utf8,
+            _ => {
+                // this error is internal as `data_types` should have captured this.
+                return Err(DataFusionError::Internal(
+                    "The btrim function can only accept strings.".to_string(),
+                ));
+            }
+        }),
+        BuiltinScalarFunction::CharacterLength => Ok(match arg_types[0] {
+            DataType::LargeUtf8 => DataType::Int64,
+            DataType::Utf8 => DataType::Int32,
+            _ => {
+                // this error is internal as `data_types` should have captured this.
+                return Err(DataFusionError::Internal(
+                    "The character_length function can only accept strings.".to_string(),
                 ));
             }
         }),
         BuiltinScalarFunction::Concat => Ok(DataType::Utf8),
+        BuiltinScalarFunction::ConcatWithSeparator => Ok(DataType::Utf8),
+        BuiltinScalarFunction::DatePart => Ok(DataType::Int32),
+        BuiltinScalarFunction::DateTrunc => {
+            Ok(DataType::Timestamp(TimeUnit::Nanosecond, None))
+        }
         BuiltinScalarFunction::Lower => Ok(match arg_types[0] {
             DataType::LargeUtf8 => DataType::LargeUtf8,
             DataType::Utf8 => DataType::Utf8,
@@ -262,51 +318,6 @@ pub fn return_type(
                 ));
             }
         }),
-        BuiltinScalarFunction::Rtrim => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The rtrim function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Trim => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The trim function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Upper => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The upper function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::ToTimestamp => {
-            Ok(DataType::Timestamp(TimeUnit::Nanosecond, None))
-        }
-        BuiltinScalarFunction::DateTrunc => {
-            Ok(DataType::Timestamp(TimeUnit::Nanosecond, None))
-        }
-        BuiltinScalarFunction::Array => Ok(DataType::FixedSizeList(
-            Box::new(Field::new("item", arg_types[0].clone(), true)),
-            arg_types.len() as i32,
-        )),
-        BuiltinScalarFunction::NullIf => {
-            // NULLIF has two args and they might get coerced, get a preview of this
-            let coerced_types = data_types(arg_types, &signature(fun));
-            coerced_types.map(|typs| typs[0].clone())
-        }
         BuiltinScalarFunction::MD5 => Ok(match arg_types[0] {
             DataType::LargeUtf8 => DataType::LargeUtf8,
             DataType::Utf8 => DataType::Utf8,
@@ -314,6 +325,31 @@ pub fn return_type(
                 // this error is internal as `data_types` should have captured this.
                 return Err(DataFusionError::Internal(
                     "The md5 function can only accept strings.".to_string(),
+                ));
+            }
+        }),
+        BuiltinScalarFunction::NullIf => {
+            // NULLIF has two args and they might get coerced, get a preview of this
+            let coerced_types = data_types(arg_types, &signature(fun));
+            coerced_types.map(|typs| typs[0].clone())
+        }
+        BuiltinScalarFunction::OctetLength => Ok(match arg_types[0] {
+            DataType::LargeUtf8 => DataType::Int64,
+            DataType::Utf8 => DataType::Int32,
+            _ => {
+                // this error is internal as `data_types` should have captured this.
+                return Err(DataFusionError::Internal(
+                    "The octet_length function can only accept strings.".to_string(),
+                ));
+            }
+        }),
+        BuiltinScalarFunction::Rtrim => Ok(match arg_types[0] {
+            DataType::LargeUtf8 => DataType::LargeUtf8,
+            DataType::Utf8 => DataType::Utf8,
+            _ => {
+                // this error is internal as `data_types` should have captured this.
+                return Err(DataFusionError::Internal(
+                    "The rtrim function can only accept strings.".to_string(),
                 ));
             }
         }),
@@ -357,7 +393,57 @@ pub fn return_type(
                 ));
             }
         }),
-        _ => Ok(DataType::Float64),
+        BuiltinScalarFunction::Substr => Ok(match arg_types[0] {
+            DataType::LargeUtf8 => DataType::LargeUtf8,
+            DataType::Utf8 => DataType::Utf8,
+            _ => {
+                // this error is internal as `data_types` should have captured this.
+                return Err(DataFusionError::Internal(
+                    "The substr function can only accept strings.".to_string(),
+                ));
+            }
+        }),
+        BuiltinScalarFunction::ToTimestamp => {
+            Ok(DataType::Timestamp(TimeUnit::Nanosecond, None))
+        }
+        BuiltinScalarFunction::Trim => Ok(match arg_types[0] {
+            DataType::LargeUtf8 => DataType::LargeUtf8,
+            DataType::Utf8 => DataType::Utf8,
+            _ => {
+                // this error is internal as `data_types` should have captured this.
+                return Err(DataFusionError::Internal(
+                    "The trim function can only accept strings.".to_string(),
+                ));
+            }
+        }),
+        BuiltinScalarFunction::Upper => Ok(match arg_types[0] {
+            DataType::LargeUtf8 => DataType::LargeUtf8,
+            DataType::Utf8 => DataType::Utf8,
+            _ => {
+                // this error is internal as `data_types` should have captured this.
+                return Err(DataFusionError::Internal(
+                    "The upper function can only accept strings.".to_string(),
+                ));
+            }
+        }),
+
+        BuiltinScalarFunction::Abs
+        | BuiltinScalarFunction::Acos
+        | BuiltinScalarFunction::Asin
+        | BuiltinScalarFunction::Atan
+        | BuiltinScalarFunction::Ceil
+        | BuiltinScalarFunction::Cos
+        | BuiltinScalarFunction::Exp
+        | BuiltinScalarFunction::Floor
+        | BuiltinScalarFunction::Log
+        | BuiltinScalarFunction::Log10
+        | BuiltinScalarFunction::Log2
+        | BuiltinScalarFunction::Round
+        | BuiltinScalarFunction::Signum
+        | BuiltinScalarFunction::Sin
+        | BuiltinScalarFunction::Sqrt
+        | BuiltinScalarFunction::Tan
+        | BuiltinScalarFunction::Trunc => Ok(DataType::Float64),
     }
 }
 
@@ -369,30 +455,86 @@ pub fn create_physical_expr(
     input_schema: &Schema,
 ) -> Result<Arc<dyn PhysicalExpr>> {
     let fun_expr: ScalarFunctionImplementation = Arc::new(match fun {
-        BuiltinScalarFunction::Sqrt => math_expressions::sqrt,
-        BuiltinScalarFunction::Sin => math_expressions::sin,
-        BuiltinScalarFunction::Cos => math_expressions::cos,
-        BuiltinScalarFunction::Tan => math_expressions::tan,
-        BuiltinScalarFunction::Asin => math_expressions::asin,
-        BuiltinScalarFunction::Acos => math_expressions::acos,
-        BuiltinScalarFunction::Atan => math_expressions::atan,
-        BuiltinScalarFunction::Exp => math_expressions::exp,
-        BuiltinScalarFunction::Log => math_expressions::ln,
-        BuiltinScalarFunction::Log2 => math_expressions::log2,
-        BuiltinScalarFunction::Log10 => math_expressions::log10,
-        BuiltinScalarFunction::Floor => math_expressions::floor,
-        BuiltinScalarFunction::Ceil => math_expressions::ceil,
-        BuiltinScalarFunction::Round => math_expressions::round,
-        BuiltinScalarFunction::Trunc => math_expressions::trunc,
+        // math functions
         BuiltinScalarFunction::Abs => math_expressions::abs,
+        BuiltinScalarFunction::Acos => math_expressions::acos,
+        BuiltinScalarFunction::Asin => math_expressions::asin,
+        BuiltinScalarFunction::Atan => math_expressions::atan,
+        BuiltinScalarFunction::Ceil => math_expressions::ceil,
+        BuiltinScalarFunction::Cos => math_expressions::cos,
+        BuiltinScalarFunction::Exp => math_expressions::exp,
+        BuiltinScalarFunction::Floor => math_expressions::floor,
+        BuiltinScalarFunction::Log => math_expressions::ln,
+        BuiltinScalarFunction::Log10 => math_expressions::log10,
+        BuiltinScalarFunction::Log2 => math_expressions::log2,
+        BuiltinScalarFunction::Round => math_expressions::round,
         BuiltinScalarFunction::Signum => math_expressions::signum,
-        BuiltinScalarFunction::NullIf => nullif_func,
+        BuiltinScalarFunction::Sin => math_expressions::sin,
+        BuiltinScalarFunction::Sqrt => math_expressions::sqrt,
+        BuiltinScalarFunction::Tan => math_expressions::tan,
+        BuiltinScalarFunction::Trunc => math_expressions::trunc,
+
+        // string functions
+        BuiltinScalarFunction::Array => array_expressions::array,
+        BuiltinScalarFunction::BitLength => |args| match &args[0] {
+            ColumnarValue::Array(v) => Ok(ColumnarValue::Array(bit_length(v.as_ref())?)),
+            ColumnarValue::Scalar(v) => match v {
+                ScalarValue::Utf8(v) => Ok(ColumnarValue::Scalar(ScalarValue::Int32(
+                    v.as_ref().map(|x| (x.len() * 8) as i32),
+                ))),
+                ScalarValue::LargeUtf8(v) => Ok(ColumnarValue::Scalar(
+                    ScalarValue::Int64(v.as_ref().map(|x| (x.len() * 8) as i64)),
+                )),
+                _ => unreachable!(),
+            },
+        },
+        BuiltinScalarFunction::Btrim => |args| match args[0].data_type() {
+            DataType::Utf8 => {
+                make_scalar_function(string_expressions::btrim::<i32>)(args)
+            }
+            DataType::LargeUtf8 => {
+                make_scalar_function(string_expressions::btrim::<i64>)(args)
+            }
+            other => Err(DataFusionError::Internal(format!(
+                "Unsupported data type {:?} for function btrim",
+                other,
+            ))),
+        },
+        BuiltinScalarFunction::CharacterLength => |args| match args[0].data_type() {
+            DataType::Utf8 => make_scalar_function(
+                string_expressions::character_length::<Int32Type>,
+            )(args),
+            DataType::LargeUtf8 => make_scalar_function(
+                string_expressions::character_length::<Int64Type>,
+            )(args),
+            other => Err(DataFusionError::Internal(format!(
+                "Unsupported data type {:?} for function character_length",
+                other,
+            ))),
+        },
+        BuiltinScalarFunction::Concat => string_expressions::concat,
+        BuiltinScalarFunction::ConcatWithSeparator => {
+            |args| make_scalar_function(string_expressions::concat_ws)(args)
+        }
+        BuiltinScalarFunction::DatePart => datetime_expressions::date_part,
+        BuiltinScalarFunction::DateTrunc => datetime_expressions::date_trunc,
+        BuiltinScalarFunction::Lower => string_expressions::lower,
+        BuiltinScalarFunction::Ltrim => |args| match args[0].data_type() {
+            DataType::Utf8 => {
+                make_scalar_function(string_expressions::ltrim::<i32>)(args)
+            }
+            DataType::LargeUtf8 => {
+                make_scalar_function(string_expressions::ltrim::<i64>)(args)
+            }
+            other => Err(DataFusionError::Internal(format!(
+                "Unsupported data type {:?} for function ltrim",
+                other,
+            ))),
+        },
         BuiltinScalarFunction::MD5 => crypto_expressions::md5,
-        BuiltinScalarFunction::SHA224 => crypto_expressions::sha224,
-        BuiltinScalarFunction::SHA256 => crypto_expressions::sha256,
-        BuiltinScalarFunction::SHA384 => crypto_expressions::sha384,
-        BuiltinScalarFunction::SHA512 => crypto_expressions::sha512,
-        BuiltinScalarFunction::Length => |args| match &args[0] {
+        BuiltinScalarFunction::NullIf => nullif_func,
+        BuiltinScalarFunction::OctetLength => |args| match &args[0] {
+            ColumnarValue::Array(v) => Ok(ColumnarValue::Array(length(v.as_ref())?)),
             ColumnarValue::Scalar(v) => match v {
                 ScalarValue::Utf8(v) => Ok(ColumnarValue::Scalar(ScalarValue::Int32(
                     v.as_ref().map(|x| x.len() as i32),
@@ -402,17 +544,49 @@ pub fn create_physical_expr(
                 )),
                 _ => unreachable!(),
             },
-            ColumnarValue::Array(v) => Ok(ColumnarValue::Array(length(v.as_ref())?)),
         },
-        BuiltinScalarFunction::Concat => string_expressions::concatenate,
-        BuiltinScalarFunction::Lower => string_expressions::lower,
-        BuiltinScalarFunction::Trim => string_expressions::trim,
-        BuiltinScalarFunction::Ltrim => string_expressions::ltrim,
-        BuiltinScalarFunction::Rtrim => string_expressions::rtrim,
-        BuiltinScalarFunction::Upper => string_expressions::upper,
+        BuiltinScalarFunction::Rtrim => |args| match args[0].data_type() {
+            DataType::Utf8 => {
+                make_scalar_function(string_expressions::rtrim::<i32>)(args)
+            }
+            DataType::LargeUtf8 => {
+                make_scalar_function(string_expressions::rtrim::<i64>)(args)
+            }
+            other => Err(DataFusionError::Internal(format!(
+                "Unsupported data type {:?} for function rtrim",
+                other,
+            ))),
+        },
+        BuiltinScalarFunction::SHA224 => crypto_expressions::sha224,
+        BuiltinScalarFunction::SHA256 => crypto_expressions::sha256,
+        BuiltinScalarFunction::SHA384 => crypto_expressions::sha384,
+        BuiltinScalarFunction::SHA512 => crypto_expressions::sha512,
+        BuiltinScalarFunction::Substr => |args| match args[0].data_type() {
+            DataType::Utf8 => {
+                make_scalar_function(string_expressions::substr::<i32>)(args)
+            }
+            DataType::LargeUtf8 => {
+                make_scalar_function(string_expressions::substr::<i64>)(args)
+            }
+            other => Err(DataFusionError::Internal(format!(
+                "Unsupported data type {:?} for function substr",
+                other,
+            ))),
+        },
         BuiltinScalarFunction::ToTimestamp => datetime_expressions::to_timestamp,
-        BuiltinScalarFunction::DateTrunc => datetime_expressions::date_trunc,
-        BuiltinScalarFunction::Array => array_expressions::array,
+        BuiltinScalarFunction::Trim => |args| match args[0].data_type() {
+            DataType::Utf8 => {
+                make_scalar_function(string_expressions::btrim::<i32>)(args)
+            }
+            DataType::LargeUtf8 => {
+                make_scalar_function(string_expressions::btrim::<i64>)(args)
+            }
+            other => Err(DataFusionError::Internal(format!(
+                "Unsupported data type {:?} for function trim",
+                other,
+            ))),
+        },
+        BuiltinScalarFunction::Upper => string_expressions::upper,
     });
     // coerce
     let args = coerce(args, input_schema, &signature(fun))?;
@@ -436,28 +610,62 @@ fn signature(fun: &BuiltinScalarFunction) -> Signature {
 
     // for now, the list is small, as we do not have many built-in functions.
     match fun {
-        BuiltinScalarFunction::Concat => Signature::Variadic(vec![DataType::Utf8]),
-        BuiltinScalarFunction::Upper
+        BuiltinScalarFunction::Array => {
+            Signature::Variadic(array_expressions::SUPPORTED_ARRAY_TYPES.to_vec())
+        }
+        BuiltinScalarFunction::Concat | BuiltinScalarFunction::ConcatWithSeparator => {
+            Signature::Variadic(vec![DataType::Utf8])
+        }
+        BuiltinScalarFunction::BitLength
+        | BuiltinScalarFunction::CharacterLength
         | BuiltinScalarFunction::Lower
-        | BuiltinScalarFunction::Length
-        | BuiltinScalarFunction::Trim
-        | BuiltinScalarFunction::Ltrim
-        | BuiltinScalarFunction::Rtrim
         | BuiltinScalarFunction::MD5
+        | BuiltinScalarFunction::OctetLength
         | BuiltinScalarFunction::SHA224
         | BuiltinScalarFunction::SHA256
         | BuiltinScalarFunction::SHA384
-        | BuiltinScalarFunction::SHA512 => {
+        | BuiltinScalarFunction::SHA512
+        | BuiltinScalarFunction::Trim
+        | BuiltinScalarFunction::Upper => {
             Signature::Uniform(1, vec![DataType::Utf8, DataType::LargeUtf8])
         }
+        BuiltinScalarFunction::Btrim
+        | BuiltinScalarFunction::Ltrim
+        | BuiltinScalarFunction::Rtrim => Signature::OneOf(vec![
+            Signature::Exact(vec![DataType::Utf8]),
+            Signature::Exact(vec![DataType::Utf8, DataType::Utf8]),
+        ]),
         BuiltinScalarFunction::ToTimestamp => Signature::Uniform(1, vec![DataType::Utf8]),
         BuiltinScalarFunction::DateTrunc => Signature::Exact(vec![
             DataType::Utf8,
             DataType::Timestamp(TimeUnit::Nanosecond, None),
         ]),
-        BuiltinScalarFunction::Array => {
-            Signature::Variadic(array_expressions::SUPPORTED_ARRAY_TYPES.to_vec())
-        }
+        BuiltinScalarFunction::DatePart => Signature::OneOf(vec![
+            Signature::Exact(vec![DataType::Utf8, DataType::Date32]),
+            Signature::Exact(vec![DataType::Utf8, DataType::Date64]),
+            Signature::Exact(vec![
+                DataType::Utf8,
+                DataType::Timestamp(TimeUnit::Second, None),
+            ]),
+            Signature::Exact(vec![
+                DataType::Utf8,
+                DataType::Timestamp(TimeUnit::Microsecond, None),
+            ]),
+            Signature::Exact(vec![
+                DataType::Utf8,
+                DataType::Timestamp(TimeUnit::Millisecond, None),
+            ]),
+            Signature::Exact(vec![
+                DataType::Utf8,
+                DataType::Timestamp(TimeUnit::Nanosecond, None),
+            ]),
+        ]),
+        BuiltinScalarFunction::Substr => Signature::OneOf(vec![
+            Signature::Exact(vec![DataType::Utf8, DataType::Int64]),
+            Signature::Exact(vec![DataType::LargeUtf8, DataType::Int64]),
+            Signature::Exact(vec![DataType::Utf8, DataType::Int64, DataType::Int64]),
+            Signature::Exact(vec![DataType::LargeUtf8, DataType::Int64, DataType::Int64]),
+        ]),
         BuiltinScalarFunction::NullIf => {
             Signature::Uniform(2, SUPPORTED_NULLIF_TYPES.to_vec())
         }
@@ -617,82 +825,640 @@ mod tests {
     };
     use arrow::{
         array::{
-            ArrayRef, FixedSizeListArray, Float64Array, Int32Array, StringArray,
+            Array, ArrayRef, FixedSizeListArray, Float64Array, Int32Array, StringArray,
             UInt32Array, UInt64Array,
         },
         datatypes::Field,
         record_batch::RecordBatch,
     };
 
-    fn generic_test_math(value: ScalarValue, expected: &str) -> Result<()> {
-        // any type works here: we evaluate against a literal of `value`
-        let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
-        let columns: Vec<ArrayRef> = vec![Arc::new(Int32Array::from(vec![1]))];
+    /// $FUNC function to test
+    /// $ARGS arguments (vec) to pass to function
+    /// $EXPECTED a Result<Option<$EXPECTED_TYPE>> where Result allows testing errors and Option allows testing Null
+    /// $EXPECTED_TYPE is the expected value type
+    /// $DATA_TYPE is the function to test result type
+    /// $ARRAY_TYPE is the column type after function applied
+    macro_rules! test_function {
+        ($FUNC:ident, $ARGS:expr, $EXPECTED:expr, $EXPECTED_TYPE:ty, $DATA_TYPE: ident, $ARRAY_TYPE:ident) => {
+            // used to provide type annotation
+            let expected: Result<Option<$EXPECTED_TYPE>> = $EXPECTED;
 
-        let arg = lit(value);
+            // any type works here: we evaluate against a literal of `value`
+            let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
+            let columns: Vec<ArrayRef> = vec![Arc::new(Int32Array::from(vec![1]))];
 
-        let expr = create_physical_expr(&BuiltinScalarFunction::Exp, &[arg], &schema)?;
+            let expr =
+                create_physical_expr(&BuiltinScalarFunction::$FUNC, $ARGS, &schema)?;
 
-        // type is correct
-        assert_eq!(expr.data_type(&schema)?, DataType::Float64);
+            // type is correct
+            assert_eq!(expr.data_type(&schema)?, DataType::$DATA_TYPE);
 
-        // evaluate works
-        let batch = RecordBatch::try_new(Arc::new(schema.clone()), columns)?;
-        let result = expr.evaluate(&batch)?.into_array(batch.num_rows());
+            let batch = RecordBatch::try_new(Arc::new(schema.clone()), columns)?;
 
-        // downcast works
-        let result = result.as_any().downcast_ref::<Float64Array>().unwrap();
+            match expected {
+                Ok(expected) => {
+                    let result = expr.evaluate(&batch)?;
+                    let result = result.into_array(batch.num_rows());
+                    let result = result.as_any().downcast_ref::<$ARRAY_TYPE>().unwrap();
 
-        // value is correct
-        assert_eq!(result.value(0).to_string(), expected);
-
-        Ok(())
+                    // value is correct
+                    match expected {
+                        Some(v) => assert_eq!(result.value(0), v),
+                        None => assert!(result.is_null(0)),
+                    };
+                }
+                Err(expected_error) => {
+                    // evaluate is expected error - cannot use .expect_err() due to Debug not being implemented
+                    match expr.evaluate(&batch) {
+                        Ok(_) => assert!(false, "expected error"),
+                        Err(error) => {
+                            assert_eq!(error.to_string(), expected_error.to_string());
+                        }
+                    }
+                }
+            };
+        };
     }
 
     #[test]
-    fn test_math_function() -> Result<()> {
-        // 2.71828182845904523536... : https://oeis.org/A001113
-        let exp_f64 = "2.718281828459045";
-        let exp_f32 = "2.7182817459106445";
-        generic_test_math(ScalarValue::from(1i32), exp_f64)?;
-        generic_test_math(ScalarValue::from(1u32), exp_f64)?;
-        generic_test_math(ScalarValue::from(1u64), exp_f64)?;
-        generic_test_math(ScalarValue::from(1f64), exp_f64)?;
-        generic_test_math(ScalarValue::from(1f32), exp_f32)?;
+    fn test_functions() -> Result<()> {
+        test_function!(
+            BitLength,
+            &[lit(ScalarValue::Utf8(Some("chars".to_string())))],
+            Ok(Some(40)),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            BitLength,
+            &[lit(ScalarValue::Utf8(Some("josé".to_string())))],
+            Ok(Some(40)),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            BitLength,
+            &[lit(ScalarValue::Utf8(Some("".to_string())))],
+            Ok(Some(0)),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            Btrim,
+            &[lit(ScalarValue::Utf8(Some(" trim ".to_string())))],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Btrim,
+            &[lit(ScalarValue::Utf8(Some(" trim".to_string())))],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Btrim,
+            &[lit(ScalarValue::Utf8(Some("trim ".to_string())))],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Btrim,
+            &[lit(ScalarValue::Utf8(Some("\n trim \n".to_string())))],
+            Ok(Some("\n trim \n")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Btrim,
+            &[
+                lit(ScalarValue::Utf8(Some("xyxtrimyyx".to_string()))),
+                lit(ScalarValue::Utf8(Some("xyz".to_string()))),
+            ],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Btrim,
+            &[
+                lit(ScalarValue::Utf8(Some("\nxyxtrimyyx\n".to_string()))),
+                lit(ScalarValue::Utf8(Some("xyz\n".to_string()))),
+            ],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Btrim,
+            &[
+                lit(ScalarValue::Utf8(None)),
+                lit(ScalarValue::Utf8(Some("xyz".to_string()))),
+            ],
+            Ok(None),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Btrim,
+            &[
+                lit(ScalarValue::Utf8(Some("xyxtrimyyx".to_string()))),
+                lit(ScalarValue::Utf8(None)),
+            ],
+            Ok(None),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            CharacterLength,
+            &[lit(ScalarValue::Utf8(Some("chars".to_string())))],
+            Ok(Some(5)),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            CharacterLength,
+            &[lit(ScalarValue::Utf8(Some("josé".to_string())))],
+            Ok(Some(4)),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            CharacterLength,
+            &[lit(ScalarValue::Utf8(Some("".to_string())))],
+            Ok(Some(0)),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            CharacterLength,
+            &[lit(ScalarValue::Utf8(None))],
+            Ok(None),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            Concat,
+            &[
+                lit(ScalarValue::Utf8(Some("aa".to_string()))),
+                lit(ScalarValue::Utf8(Some("bb".to_string()))),
+                lit(ScalarValue::Utf8(Some("cc".to_string()))),
+            ],
+            Ok(Some("aabbcc")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Concat,
+            &[
+                lit(ScalarValue::Utf8(Some("aa".to_string()))),
+                lit(ScalarValue::Utf8(None)),
+                lit(ScalarValue::Utf8(Some("cc".to_string()))),
+            ],
+            Ok(Some("aacc")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Concat,
+            &[lit(ScalarValue::Utf8(None))],
+            Ok(Some("")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            ConcatWithSeparator,
+            &[
+                lit(ScalarValue::Utf8(Some("|".to_string()))),
+                lit(ScalarValue::Utf8(Some("aa".to_string()))),
+                lit(ScalarValue::Utf8(Some("bb".to_string()))),
+                lit(ScalarValue::Utf8(Some("cc".to_string()))),
+            ],
+            Ok(Some("aa|bb|cc")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            ConcatWithSeparator,
+            &[
+                lit(ScalarValue::Utf8(Some("|".to_string()))),
+                lit(ScalarValue::Utf8(None)),
+            ],
+            Ok(Some("")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            ConcatWithSeparator,
+            &[
+                lit(ScalarValue::Utf8(None)),
+                lit(ScalarValue::Utf8(Some("aa".to_string()))),
+                lit(ScalarValue::Utf8(Some("bb".to_string()))),
+                lit(ScalarValue::Utf8(Some("cc".to_string()))),
+            ],
+            Ok(None),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            ConcatWithSeparator,
+            &[
+                lit(ScalarValue::Utf8(Some("|".to_string()))),
+                lit(ScalarValue::Utf8(Some("aa".to_string()))),
+                lit(ScalarValue::Utf8(None)),
+                lit(ScalarValue::Utf8(Some("cc".to_string()))),
+            ],
+            Ok(Some("aa|cc")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Exp,
+            &[lit(ScalarValue::Int32(Some(1)))],
+            Ok(Some((1.0_f64).exp())),
+            f64,
+            Float64,
+            Float64Array
+        );
+        test_function!(
+            Exp,
+            &[lit(ScalarValue::UInt32(Some(1)))],
+            Ok(Some((1.0_f64).exp())),
+            f64,
+            Float64,
+            Float64Array
+        );
+        test_function!(
+            Exp,
+            &[lit(ScalarValue::UInt64(Some(1)))],
+            Ok(Some((1.0_f64).exp())),
+            f64,
+            Float64,
+            Float64Array
+        );
+        test_function!(
+            Exp,
+            &[lit(ScalarValue::Float64(Some(1.0)))],
+            Ok(Some((1.0_f64).exp())),
+            f64,
+            Float64,
+            Float64Array
+        );
+        test_function!(
+            Exp,
+            &[lit(ScalarValue::Float32(Some(1.0)))],
+            Ok(Some((1.0_f32).exp() as f64)),
+            f64,
+            Float64,
+            Float64Array
+        );
+        test_function!(
+            Ltrim,
+            &[lit(ScalarValue::Utf8(Some(" trim".to_string())))],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Ltrim,
+            &[lit(ScalarValue::Utf8(Some(" trim ".to_string())))],
+            Ok(Some("trim ")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Ltrim,
+            &[lit(ScalarValue::Utf8(Some("trim ".to_string())))],
+            Ok(Some("trim ")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Ltrim,
+            &[lit(ScalarValue::Utf8(Some("trim".to_string())))],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Ltrim,
+            &[lit(ScalarValue::Utf8(Some("\n trim ".to_string())))],
+            Ok(Some("\n trim ")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Ltrim,
+            &[lit(ScalarValue::Utf8(None))],
+            Ok(None),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            OctetLength,
+            &[lit(ScalarValue::Utf8(Some("chars".to_string())))],
+            Ok(Some(5)),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            OctetLength,
+            &[lit(ScalarValue::Utf8(Some("josé".to_string())))],
+            Ok(Some(5)),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            OctetLength,
+            &[lit(ScalarValue::Utf8(Some("".to_string())))],
+            Ok(Some(0)),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            OctetLength,
+            &[lit(ScalarValue::Utf8(None))],
+            Ok(None),
+            i32,
+            Int32,
+            Int32Array
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(Some(0))),
+            ],
+            Ok(Some("alphabet")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("joséésoj".to_string()))),
+                lit(ScalarValue::Int64(Some(5))),
+            ],
+            Ok(Some("ésoj")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(Some(1))),
+            ],
+            Ok(Some("alphabet")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(Some(2))),
+            ],
+            Ok(Some("lphabet")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(Some(3))),
+            ],
+            Ok(Some("phabet")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(Some(-3))),
+            ],
+            Ok(Some("alphabet")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(Some(30))),
+            ],
+            Ok(Some("")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(None)),
+            ],
+            Ok(None),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(Some(3))),
+                lit(ScalarValue::Int64(Some(2))),
+            ],
+            Ok(Some("ph")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(Some(3))),
+                lit(ScalarValue::Int64(Some(20))),
+            ],
+            Ok(Some("phabet")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(None)),
+                lit(ScalarValue::Int64(Some(20))),
+            ],
+            Ok(None),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(Some(3))),
+                lit(ScalarValue::Int64(None)),
+            ],
+            Ok(None),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Int64(Some(1))),
+                lit(ScalarValue::Int64(Some(-1))),
+            ],
+            Err(DataFusionError::Execution(
+                "negative substring length not allowed".to_string(),
+            )),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Substr,
+            &[
+                lit(ScalarValue::Utf8(Some("joséésoj".to_string()))),
+                lit(ScalarValue::Int64(Some(5))),
+                lit(ScalarValue::Int64(Some(2))),
+            ],
+            Ok(Some("és")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Rtrim,
+            &[lit(ScalarValue::Utf8(Some("trim ".to_string())))],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Rtrim,
+            &[lit(ScalarValue::Utf8(Some(" trim ".to_string())))],
+            Ok(Some(" trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Rtrim,
+            &[lit(ScalarValue::Utf8(Some(" trim \n".to_string())))],
+            Ok(Some(" trim \n")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Rtrim,
+            &[lit(ScalarValue::Utf8(Some(" trim".to_string())))],
+            Ok(Some(" trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Rtrim,
+            &[lit(ScalarValue::Utf8(Some("trim".to_string())))],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Rtrim,
+            &[lit(ScalarValue::Utf8(None))],
+            Ok(None),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Trim,
+            &[lit(ScalarValue::Utf8(Some(" trim ".to_string())))],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Trim,
+            &[lit(ScalarValue::Utf8(Some("trim ".to_string())))],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Trim,
+            &[lit(ScalarValue::Utf8(Some(" trim".to_string())))],
+            Ok(Some("trim")),
+            &str,
+            Utf8,
+            StringArray
+        );
+        test_function!(
+            Trim,
+            &[lit(ScalarValue::Utf8(None))],
+            Ok(None),
+            &str,
+            Utf8,
+            StringArray
+        );
         Ok(())
-    }
-
-    fn test_concat(value: ScalarValue, expected: &str) -> Result<()> {
-        // any type works here: we evaluate against a literal of `value`
-        let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
-        let columns: Vec<ArrayRef> = vec![Arc::new(Int32Array::from(vec![1]))];
-
-        // concat(value, value)
-        let expr = create_physical_expr(
-            &BuiltinScalarFunction::Concat,
-            &[lit(value.clone()), lit(value)],
-            &schema,
-        )?;
-
-        // type is correct
-        assert_eq!(expr.data_type(&schema)?, DataType::Utf8);
-
-        // evaluate works
-        let batch = RecordBatch::try_new(Arc::new(schema.clone()), columns)?;
-        let result = expr.evaluate(&batch)?.into_array(batch.num_rows());
-
-        // downcast works
-        let result = result.as_any().downcast_ref::<StringArray>().unwrap();
-
-        // value is correct
-        assert_eq!(result.value(0).to_string(), expected);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_concat_utf8() -> Result<()> {
-        test_concat(ScalarValue::Utf8(Some("aa".to_string())), "aaaa")
     }
 
     #[test]

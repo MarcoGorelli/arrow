@@ -1140,8 +1140,11 @@ cdef extern from "arrow/io/api.h" namespace "arrow::io" nogil:
         ObjectType_FILE" arrow::io::ObjectType::FILE"
         ObjectType_DIRECTORY" arrow::io::ObjectType::DIRECTORY"
 
-    cdef cppclass CAsyncContext" arrow::io::AsyncContext":
-        CAsyncContext()
+    cdef cppclass CIOContext" arrow::io::IOContext":
+        CIOContext()
+        CIOContext(CMemoryPool*)
+
+    CIOContext c_default_io_context "arrow::io::default_io_context"()
 
     cdef cppclass FileStatistics:
         int64_t size
@@ -1618,10 +1621,17 @@ cdef extern from "arrow/csv/api.h" namespace "arrow::csv" nogil:
         @staticmethod
         CCSVReadOptions Defaults()
 
+    cdef cppclass CCSVWriteOptions" arrow::csv::WriteOptions":
+        c_bool include_header
+        int32_t batch_size
+
+        @staticmethod
+        CCSVWriteOptions Defaults()
+
     cdef cppclass CCSVReader" arrow::csv::TableReader":
         @staticmethod
         CResult[shared_ptr[CCSVReader]] Make(
-            CMemoryPool*, CAsyncContext, shared_ptr[CInputStream],
+            CIOContext, shared_ptr[CInputStream],
             CCSVReadOptions, CCSVParseOptions, CCSVConvertOptions)
 
         CResult[shared_ptr[CTable]] Read()
@@ -1632,6 +1642,11 @@ cdef extern from "arrow/csv/api.h" namespace "arrow::csv" nogil:
         CResult[shared_ptr[CCSVStreamingReader]] Make(
             CMemoryPool*, shared_ptr[CInputStream],
             CCSVReadOptions, CCSVParseOptions, CCSVConvertOptions)
+
+    cdef CStatus WriteCSV(
+        CTable&, CCSVWriteOptions& options, CMemoryPool*, COutputStream*)
+    cdef CStatus WriteCSV(
+        CRecordBatch&, CCSVWriteOptions& options, CMemoryPool*, COutputStream*)
 
 
 cdef extern from "arrow/json/options.h" nogil:
@@ -1802,6 +1817,20 @@ cdef extern from "arrow/compute/api.h" namespace "arrow::compute" nogil:
         CFilterOptions(CFilterNullSelectionBehavior null_selection)
         CFilterNullSelectionBehavior null_selection_behavior
 
+    enum CDictionaryEncodeNullEncodingBehavior \
+            "arrow::compute::DictionaryEncodeOptions::NullEncodingBehavior":
+        CDictionaryEncodeNullEncodingBehavior_ENCODE \
+            "arrow::compute::DictionaryEncodeOptions::ENCODE"
+        CDictionaryEncodeNullEncodingBehavior_MASK \
+            "arrow::compute::DictionaryEncodeOptions::MASK"
+
+    cdef cppclass CDictionaryEncodeOptions \
+            "arrow::compute::DictionaryEncodeOptions"(CFunctionOptions):
+        CDictionaryEncodeOptions()
+        CDictionaryEncodeOptions(
+            CDictionaryEncodeNullEncodingBehavior null_encoding)
+        CDictionaryEncodeNullEncodingBehavior null_encoding
+
     cdef cppclass CTakeOptions \
             " arrow::compute::TakeOptions"(CFunctionOptions):
         CTakeOptions(c_bool boundscheck)
@@ -1889,6 +1918,14 @@ cdef extern from "arrow/compute/api.h" namespace "arrow::compute" nogil:
         CQuantileOptions(vector[double] q, CQuantileInterp interpolation)
         vector[double] q
         CQuantileInterp interpolation
+
+    cdef cppclass CTDigestOptions \
+            "arrow::compute::TDigestOptions"(CFunctionOptions):
+        CTDigestOptions(vector[double] q,
+                        unsigned int delta, unsigned int buffer_size)
+        vector[double] q
+        unsigned int delta
+        unsigned int buffer_size
 
     enum DatumType" arrow::Datum::type":
         DatumType_NONE" arrow::Datum::NONE"

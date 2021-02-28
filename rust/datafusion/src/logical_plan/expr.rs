@@ -348,13 +348,13 @@ impl Expr {
     ///
     /// This function errors when it is impossible to cast the
     /// expression to the target [arrow::datatypes::DataType].
-    pub fn cast_to(&self, cast_to_type: &DataType, schema: &DFSchema) -> Result<Expr> {
+    pub fn cast_to(self, cast_to_type: &DataType, schema: &DFSchema) -> Result<Expr> {
         let this_type = self.get_type(schema)?;
         if this_type == *cast_to_type {
-            Ok(self.clone())
+            Ok(self)
         } else if can_cast_types(&this_type, cast_to_type) {
             Ok(Expr::Cast {
-                expr: Box::new(self.clone()),
+                expr: Box::new(self),
                 data_type: cast_to_type.clone(),
             })
         } else {
@@ -365,75 +365,78 @@ impl Expr {
         }
     }
 
-    /// Equal
-    pub fn eq(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::Eq, other)
+    /// Return `self == other`
+    pub fn eq(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::Eq, other)
     }
 
-    /// Not equal
-    pub fn not_eq(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::NotEq, other)
+    /// Return `self != other`
+    pub fn not_eq(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::NotEq, other)
     }
 
-    /// Greater than
-    pub fn gt(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::Gt, other)
+    /// Return `self > other`
+    pub fn gt(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::Gt, other)
     }
 
-    /// Greater than or equal to
-    pub fn gt_eq(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::GtEq, other)
+    /// Return `self >= other`
+    pub fn gt_eq(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::GtEq, other)
     }
 
-    /// Less than
-    pub fn lt(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::Lt, other)
+    /// Return `self < other`
+    pub fn lt(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::Lt, other)
     }
 
-    /// Less than or equal to
-    pub fn lt_eq(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::LtEq, other)
+    /// Return `self <= other`
+    pub fn lt_eq(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::LtEq, other)
     }
 
-    /// And
-    pub fn and(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::And, other)
+    /// Return `self && other`
+    pub fn and(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::And, other)
     }
 
-    /// Or
-    pub fn or(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::Or, other)
+    /// Return `self || other`
+    pub fn or(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::Or, other)
     }
 
-    /// Not
-    pub fn not(&self) -> Expr {
-        Expr::Not(Box::new(self.clone()))
+    /// Return `!self`
+    #[allow(clippy::should_implement_trait)]
+    pub fn not(self) -> Expr {
+        Expr::Not(Box::new(self))
     }
 
-    /// Calculate the modulus of two expressions
-    pub fn modulus(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::Modulus, other)
+    /// Calculate the modulus of two expressions.
+    /// Return `self % other`
+    pub fn modulus(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::Modulus, other)
     }
 
-    /// like (string) another expression
-    pub fn like(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::Like, other)
+    /// Return `self LIKE other`
+    pub fn like(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::Like, other)
     }
 
-    /// not like another expression
-    pub fn not_like(&self, other: Expr) -> Expr {
-        binary_expr(self.clone(), Operator::NotLike, other)
+    /// Return `self NOT LIKE other`
+    pub fn not_like(self, other: Expr) -> Expr {
+        binary_expr(self, Operator::NotLike, other)
     }
 
-    /// Alias
-    pub fn alias(&self, name: &str) -> Expr {
-        Expr::Alias(Box::new(self.clone()), name.to_owned())
+    /// Return `self AS name` alias expression
+    pub fn alias(self, name: &str) -> Expr {
+        Expr::Alias(Box::new(self), name.to_owned())
     }
 
-    /// InList
-    pub fn in_list(&self, list: Vec<Expr>, negated: bool) -> Expr {
+    /// Return `self IN <list>` if `negated` is false, otherwise
+    /// return `self NOT IN <list>`.a
+    pub fn in_list(self, list: Vec<Expr>, negated: bool) -> Expr {
         Expr::InList {
-            expr: Box::new(self.clone()),
+            expr: Box::new(self),
             list,
             negated,
         }
@@ -445,9 +448,9 @@ impl Expr {
     /// # use datafusion::logical_plan::col;
     /// let sort_expr = col("foo").sort(true, true); // SORT ASC NULLS_FIRST
     /// ```
-    pub fn sort(&self, asc: bool, nulls_first: bool) -> Expr {
+    pub fn sort(self, asc: bool, nulls_first: bool) -> Expr {
         Expr::Sort {
-            expr: Box::new(self.clone()),
+            expr: Box::new(self),
             asc,
             nulls_first,
         }
@@ -560,6 +563,179 @@ impl Expr {
 
         visitor.post_visit(self)
     }
+
+    /// Performs a depth first walk of an expression and its children
+    /// to rewrite an expression, consuming `self` producing a new
+    /// [`Expr`].
+    ///
+    /// Implements a modified version of the [visitor
+    /// pattern](https://en.wikipedia.org/wiki/Visitor_pattern) to
+    /// separate algorithms from the structure of the `Expr` tree and
+    /// make it easier to write new, efficient expression
+    /// transformation algorithms.
+    ///
+    /// For an expression tree such as
+    /// ```text
+    /// BinaryExpr (GT)
+    ///    left: Column("foo")
+    ///    right: Column("bar")
+    /// ```
+    ///
+    /// The nodes are visited using the following order
+    /// ```text
+    /// pre_visit(BinaryExpr(GT))
+    /// pre_visit(Column("foo"))
+    /// mutatate(Column("foo"))
+    /// pre_visit(Column("bar"))
+    /// mutate(Column("bar"))
+    /// mutate(BinaryExpr(GT))
+    /// ```
+    ///
+    /// If an Err result is returned, recursion is stopped immediately
+    ///
+    /// If [`false`] is returned on a call to pre_visit, no
+    /// children of that expression are visited, nor is mutate
+    /// called on that expression
+    ///
+    pub fn rewrite<R>(self, rewriter: &mut R) -> Result<Self>
+    where
+        R: ExprRewriter,
+    {
+        if !rewriter.pre_visit(&self)? {
+            return Ok(self);
+        };
+
+        // recurse into all sub expressions(and cover all expression types)
+        let expr = match self {
+            Expr::Alias(expr, name) => Expr::Alias(rewrite_boxed(expr, rewriter)?, name),
+            Expr::Column(name) => Expr::Column(name),
+            Expr::ScalarVariable(names) => Expr::ScalarVariable(names),
+            Expr::Literal(value) => Expr::Literal(value),
+            Expr::BinaryExpr { left, op, right } => Expr::BinaryExpr {
+                left: rewrite_boxed(left, rewriter)?,
+                op,
+                right: rewrite_boxed(right, rewriter)?,
+            },
+            Expr::Not(expr) => Expr::Not(rewrite_boxed(expr, rewriter)?),
+            Expr::IsNotNull(expr) => Expr::IsNotNull(rewrite_boxed(expr, rewriter)?),
+            Expr::IsNull(expr) => Expr::IsNull(rewrite_boxed(expr, rewriter)?),
+            Expr::Negative(expr) => Expr::Negative(rewrite_boxed(expr, rewriter)?),
+            Expr::Between {
+                expr,
+                low,
+                high,
+                negated,
+            } => Expr::Between {
+                expr: rewrite_boxed(expr, rewriter)?,
+                low: rewrite_boxed(low, rewriter)?,
+                high: rewrite_boxed(high, rewriter)?,
+                negated,
+            },
+            Expr::Case {
+                expr,
+                when_then_expr,
+                else_expr,
+            } => {
+                let expr = rewrite_option_box(expr, rewriter)?;
+                let when_then_expr = when_then_expr
+                    .into_iter()
+                    .map(|(when, then)| {
+                        Ok((
+                            rewrite_boxed(when, rewriter)?,
+                            rewrite_boxed(then, rewriter)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                let else_expr = rewrite_option_box(else_expr, rewriter)?;
+
+                Expr::Case {
+                    expr,
+                    when_then_expr,
+                    else_expr,
+                }
+            }
+            Expr::Cast { expr, data_type } => Expr::Cast {
+                expr: rewrite_boxed(expr, rewriter)?,
+                data_type,
+            },
+            Expr::Sort {
+                expr,
+                asc,
+                nulls_first,
+            } => Expr::Sort {
+                expr: rewrite_boxed(expr, rewriter)?,
+                asc,
+                nulls_first,
+            },
+            Expr::ScalarFunction { args, fun } => Expr::ScalarFunction {
+                args: rewrite_vec(args, rewriter)?,
+                fun,
+            },
+            Expr::ScalarUDF { args, fun } => Expr::ScalarUDF {
+                args: rewrite_vec(args, rewriter)?,
+                fun,
+            },
+            Expr::AggregateFunction {
+                args,
+                fun,
+                distinct,
+            } => Expr::AggregateFunction {
+                args: rewrite_vec(args, rewriter)?,
+                fun,
+                distinct,
+            },
+            Expr::AggregateUDF { args, fun } => Expr::AggregateUDF {
+                args: rewrite_vec(args, rewriter)?,
+                fun,
+            },
+            Expr::InList {
+                expr,
+                list,
+                negated,
+            } => Expr::InList {
+                expr: rewrite_boxed(expr, rewriter)?,
+                list,
+                negated,
+            },
+            Expr::Wildcard => Expr::Wildcard,
+        };
+
+        // now rewrite this expression itself
+        rewriter.mutate(expr)
+    }
+}
+
+#[allow(clippy::boxed_local)]
+fn rewrite_boxed<R>(boxed_expr: Box<Expr>, rewriter: &mut R) -> Result<Box<Expr>>
+where
+    R: ExprRewriter,
+{
+    // TODO: It might be possible to avoid an allocation (the
+    // Box::new) below by reusing the box.
+    let expr: Expr = *boxed_expr;
+    let rewritten_expr = expr.rewrite(rewriter)?;
+    Ok(Box::new(rewritten_expr))
+}
+
+fn rewrite_option_box<R>(
+    option_box: Option<Box<Expr>>,
+    rewriter: &mut R,
+) -> Result<Option<Box<Expr>>>
+where
+    R: ExprRewriter,
+{
+    option_box
+        .map(|expr| rewrite_boxed(expr, rewriter))
+        .transpose()
+}
+
+/// rewrite a `Vec` of `Expr`s with the rewriter
+fn rewrite_vec<R>(v: Vec<Expr>, rewriter: &mut R) -> Result<Vec<Expr>>
+where
+    R: ExprRewriter,
+{
+    v.into_iter().map(|expr| expr.rewrite(rewriter)).collect()
 }
 
 /// Controls how the visitor recursion should proceed.
@@ -584,6 +760,22 @@ pub trait ExpressionVisitor: Sized {
     fn post_visit(self, _expr: &Expr) -> Result<Self> {
         Ok(self)
     }
+}
+
+/// Trait for potentially recursively rewriting an [`Expr`] expression
+/// tree. When passed to `Expr::rewrite`, `ExpressionVisitor::mutate` is
+/// invoked recursively on all nodes of an expression tree. See the
+/// comments on `Expr::rewrite` for details on its use
+pub trait ExprRewriter: Sized {
+    /// Invoked before any children of `expr` are rewritten /
+    /// visited. Default implementation returns `Ok(true)`
+    fn pre_visit(&mut self, _expr: &Expr) -> Result<bool> {
+        Ok(true)
+    }
+
+    /// Invoked after all children of `expr` have been mutated and
+    /// returns a potentially modified expr.
+    fn mutate(&mut self, expr: Expr) -> Result<Expr>;
 }
 
 pub struct CaseBuilder {
@@ -784,7 +976,7 @@ pub fn in_list(expr: Expr, list: Vec<Expr>, negated: bool) -> Expr {
     }
 }
 
-/// Whether it can be represented as a literal expression
+/// Trait for converting a type to a [`Literal`] literal expression.
 pub trait Literal {
     /// convert the value to a Literal expression
     fn lit(&self) -> Expr;
@@ -850,6 +1042,8 @@ macro_rules! unary_scalar_expr {
 }
 
 // generate methods for creating the supported unary expressions
+
+// math functions
 unary_scalar_expr!(Sqrt, sqrt);
 unary_scalar_expr!(Sin, sin);
 unary_scalar_expr!(Cos, cos);
@@ -867,32 +1061,26 @@ unary_scalar_expr!(Exp, exp);
 unary_scalar_expr!(Log, ln);
 unary_scalar_expr!(Log2, log2);
 unary_scalar_expr!(Log10, log10);
+
+// string functions
+unary_scalar_expr!(BitLength, bit_length);
+unary_scalar_expr!(Btrim, btrim);
+unary_scalar_expr!(CharacterLength, character_length);
+unary_scalar_expr!(CharacterLength, length);
+unary_scalar_expr!(Concat, concat);
+unary_scalar_expr!(ConcatWithSeparator, concat_ws);
 unary_scalar_expr!(Lower, lower);
-unary_scalar_expr!(Trim, trim);
 unary_scalar_expr!(Ltrim, ltrim);
-unary_scalar_expr!(Rtrim, rtrim);
-unary_scalar_expr!(Upper, upper);
 unary_scalar_expr!(MD5, md5);
+unary_scalar_expr!(OctetLength, octet_length);
+unary_scalar_expr!(Rtrim, rtrim);
 unary_scalar_expr!(SHA224, sha224);
 unary_scalar_expr!(SHA256, sha256);
 unary_scalar_expr!(SHA384, sha384);
 unary_scalar_expr!(SHA512, sha512);
-
-/// returns the length of a string in bytes
-pub fn length(e: Expr) -> Expr {
-    Expr::ScalarFunction {
-        fun: functions::BuiltinScalarFunction::Length,
-        args: vec![e],
-    }
-}
-
-/// returns the concatenation of string expressions
-pub fn concat(args: Vec<Expr>) -> Expr {
-    Expr::ScalarFunction {
-        fun: functions::BuiltinScalarFunction::Concat,
-        args,
-    }
-}
+unary_scalar_expr!(Substr, substr);
+unary_scalar_expr!(Trim, trim);
+unary_scalar_expr!(Upper, upper);
 
 /// returns an array of fixed size with each argument on it.
 pub fn array(args: Vec<Expr>) -> Expr {
@@ -1141,9 +1329,9 @@ fn create_name(e: &Expr, input_schema: &DFSchema) -> Result<String> {
             let expr = create_name(expr, input_schema)?;
             let list = list.iter().map(|expr| create_name(expr, input_schema));
             if *negated {
-                Ok(format!("{:?} NOT IN ({:?})", expr, list))
+                Ok(format!("{} NOT IN ({:?})", expr, list))
             } else {
-                Ok(format!("{:?} IN ({:?})", expr, list))
+                Ok(format!("{} IN ({:?})", expr, list))
             }
         }
         other => Err(DataFusionError::NotImplemented(format!(
@@ -1180,5 +1368,75 @@ mod tests {
             .when(col("state").eq(lit("NY")), lit("212"))
             .end();
         assert!(maybe_expr.is_err());
+    }
+
+    #[test]
+    fn rewriter_visit() {
+        let mut rewriter = RecordingRewriter::default();
+        col("state").eq(lit("CO")).rewrite(&mut rewriter).unwrap();
+
+        assert_eq!(
+            rewriter.v,
+            vec![
+                "Previsited #state Eq Utf8(\"CO\")",
+                "Previsited #state",
+                "Mutated #state",
+                "Previsited Utf8(\"CO\")",
+                "Mutated Utf8(\"CO\")",
+                "Mutated #state Eq Utf8(\"CO\")"
+            ]
+        )
+    }
+
+    #[derive(Default)]
+    struct RecordingRewriter {
+        v: Vec<String>,
+    }
+    impl ExprRewriter for RecordingRewriter {
+        fn mutate(&mut self, expr: Expr) -> Result<Expr> {
+            self.v.push(format!("Mutated {:?}", expr));
+            Ok(expr)
+        }
+
+        fn pre_visit(&mut self, expr: &Expr) -> Result<bool> {
+            self.v.push(format!("Previsited {:?}", expr));
+            Ok(true)
+        }
+    }
+
+    #[test]
+    fn rewriter_rewrite() {
+        let mut rewriter = FooBarRewriter {};
+
+        // rewrites "foo" --> "bar"
+        let rewritten = col("state").eq(lit("foo")).rewrite(&mut rewriter).unwrap();
+        assert_eq!(rewritten, col("state").eq(lit("bar")));
+
+        // doesn't wrewrite
+        let rewritten = col("state").eq(lit("baz")).rewrite(&mut rewriter).unwrap();
+        assert_eq!(rewritten, col("state").eq(lit("baz")));
+    }
+
+    /// rewrites all "foo" string literals to "bar"
+    struct FooBarRewriter {}
+    impl ExprRewriter for FooBarRewriter {
+        fn mutate(&mut self, expr: Expr) -> Result<Expr> {
+            match expr {
+                Expr::Literal(scalar) => {
+                    if let ScalarValue::Utf8(Some(utf8_val)) = scalar {
+                        let utf8_val = if utf8_val == "foo" {
+                            "bar".to_string()
+                        } else {
+                            utf8_val
+                        };
+                        Ok(lit(utf8_val))
+                    } else {
+                        Ok(Expr::Literal(scalar))
+                    }
+                }
+                // otherwise, return the expression unchanged
+                expr => Ok(expr),
+            }
+        }
     }
 }
